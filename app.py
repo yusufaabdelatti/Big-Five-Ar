@@ -787,7 +787,7 @@ else:
         ابدأ كل عبارة بـ <strong>"أنا..."</strong> وأجب بناءً على ما تشعر به في العادة.
         </p>""", unsafe_allow_html=True)
 
-        client_name = st.text_input("اسمك (اختياري)", placeholder="الاسم أو الأحرف الأولى")
+        client_name = st.text_input("اسمك باللغة الإنجليزية (اختياري)", placeholder="Your name in English")
         st.markdown("<br>", unsafe_allow_html=True)
 
         responses = {}
@@ -838,11 +838,23 @@ else:
                 ⚠ يرجى الإجابة على جميع الأسئلة الخمسين قبل التسليم.
             </div>""", unsafe_allow_html=True)
 
+        # Validate name is English only
+        has_arabic_name = any('؀' <= c <= 'ۿ' for c in (client_name or ""))
+
         st.markdown('<div style="text-align:center;padding:2rem 0 3rem 0;">', unsafe_allow_html=True)
         submit = st.button("تسليم الاختبار", disabled=not all_answered)
         st.markdown('</div>', unsafe_allow_html=True)
 
-        if submit and all_answered:
+        if submit and has_arabic_name:
+            st.markdown("""
+            <div style="background:#FFF0F0;border-right:3px solid #D9534F;border-left:none;
+                        padding:1rem 1.2rem;border-radius:4px 0 0 4px;
+                        font-size:0.92rem;color:#7A1A1A;margin:0.5rem 0;
+                        direction:rtl;text-align:right;font-weight:500;">
+                ⚠ يرجى كتابة اسمك باللغة الإنجليزية فقط. الأسماء المكتوبة بالعربية غير مقبولة.
+            </div>""", unsafe_allow_html=True)
+
+        if submit and all_answered and not has_arabic_name:
             with st.spinner("جاري تسليم إجاباتك..."):
                 scores = calculate_scores(responses)
                 report_text, arabic_name = generate_report(client_name or "غير محدد", scores, responses)
