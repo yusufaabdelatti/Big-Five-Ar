@@ -18,8 +18,7 @@ from reportlab.platypus import (
 from reportlab.lib.enums import TA_CENTER, TA_RIGHT
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
-import arabic_reshaper
-from bidi.algorithm import get_display
+# arabic_reshaper and bidi not needed — report is generated in English
 
 # ══════════════════════════════════════════════════════════════
 #  CONFIGURATION — عدّل هذا القسم فقط
@@ -209,10 +208,10 @@ TRAIT_META = {
 #  توليد التقرير عبر Groq
 # ══════════════════════════════════════════════════════════════
 
-def translate_name(name, api_key):
-    """If name contains English letters, ask Groq to transliterate it to Arabic."""
-    if not name or not any(c.isascii() and c.isalpha() for c in name):
-        return name
+def translate_name_to_english(name, api_key):
+    """If name contains Arabic letters, ask Groq to transliterate it to English."""
+    if not name or not any('؀' <= c <= 'ۿ' for c in name):
+        return name  # already English or empty
     try:
         response = requests.post(
             "https://api.groq.com/openai/v1/chat/completions",
@@ -220,8 +219,8 @@ def translate_name(name, api_key):
             json={
                 "model": "llama-3.3-70b-versatile",
                 "messages": [{"role": "user", "content":
-                    f"حوّل الاسم التالي إلى العربية بالتعريب الصوتي الصحيح المتعارف عليه. أعطني الاسم فقط بدون أي شرح أو علامات ترقيم: {name}"}],
-                "max_tokens": 50,
+                    f"Transliterate this Arabic name to English letters using standard romanization. Return the name only, no explanation: {name}"}],
+                "max_tokens": 30,
                 "temperature": 0.1,
             },
             timeout=15,
@@ -233,54 +232,53 @@ def translate_name(name, api_key):
         pass
     return name
 
+def get_level_en(score: int) -> str:
+    if score <= 13:   return "Low"
+    elif score <= 26: return "Moderate"
+    else:             return "High"
+
 def generate_report(client_name, scores, responses):
     api_key = st.secrets.get("GROQ_API_KEY", "")
     if not api_key:
-        raise ValueError("مفتاح GROQ_API_KEY غير موجود في إعدادات التطبيق.")
+        raise ValueError("GROQ_API_KEY is missing from Streamlit secrets.")
 
-    # Translate name to Arabic if it contains English
-    arabic_name = translate_name(client_name, api_key)
+    # Translate Arabic name to English for the report
+    english_name = translate_name_to_english(client_name, api_key)
 
     trait_lines = "\n".join(
-        f"  {TRAIT_META[t]['name']}: {scores[t]} من أربعين — {get_level(scores[t])}"
+        f"  {TRAIT_META[t]['name_en']} ({t}): {scores[t]}/40 — {get_level_en(scores[t])}"
         for t in ["E", "A", "C", "N", "O"]
     )
 
-    prompt = f"""أنت طبيب نفسي إكلينيكي متخصص تكتب تقريراً تقييمياً مهنياً وسرياً للشخصية.
+    prompt = f"""You are a licensed clinical psychologist writing a confidential professional personality assessment report.
 
-قاعدة مطلقة لا استثناء فيها: اكتب التقرير كاملاً باللغة العربية الفصحى حصراً.
-لا تكتب أي كلمة أو حرف أو رمز بالإنجليزية في أي جزء من التقرير مطلقاً.
-حتى أسماء الاختبارات والمصطلحات العلمية — اكتبها بالعربية فقط.
-اسم المُقيَّم: {arabic_name}
+CLIENT: {english_name}
+ASSESSMENT: Big Five Personality Test (BFPT) — 50 items, scale 1–5 per item, scores 0–40 per trait
 
-الاختبار: اختبار الشخصية الخمسة الكبرى — خمسون فقرة، مقياس من واحد إلى خمسة، الدرجة من صفر إلى أربعين لكل سمة.
-
-درجات السمات:
+TRAIT SCORES:
 {trait_lines}
 
-مرجع التفسير:
-- من صفر إلى ثلاثة عشر: مستوى منخفض
-- من أربعة عشر إلى ستة وعشرين: مستوى متوسط
-- من سبعة وعشرين إلى أربعين: مستوى مرتفع
+SCORE INTERPRETATION GUIDE:
+- 0–13: Low  |  14–26: Moderate  |  27–40: High
 
-وصف السمات:
-- الانبساطية: مدى استمداد الفرد طاقته من المحيط الخارجي. مرتفع = اجتماعي نشط؛ منخفض = انطوائي.
-- الطيبة والتوافقية: مدى تكيّف الفرد مع الآخرين. مرتفع = متعاون ودود؛ منخفض = مباشر صريح.
-- الضمير الحي والانضباط: مدى التنظيم والمثابرة. مرتفع = منضبط ملتزم؛ منخفض = مرن عفوي.
-- العصابية: مستوى الاستجابة الانفعالية. مرتفع = قابل للتأثر؛ منخفض = مستقر انفعالياً.
-- الانفتاح على التجربة: الفضول الفكري. مرتفع = خيالي مبدع؛ منخفض = عملي واقعي.
+TRAIT DESCRIPTIONS:
+- Extroversion (E): Seeking fulfillment from external sources/community. High = very social; Low = prefers independent work.
+- Agreeableness (A): Adjusting behavior to suit others. High = polite, people-oriented; Low = direct, tells it like it is.
+- Conscientiousness (C): Being honest and hardworking. High = rule-following, organized; Low = flexible, may be messy.
+- Neuroticism (N): Emotional reactivity. High = mood swings, stress-prone; Low = emotionally stable.
+- Openness to Experience (O): Intellectual curiosity and novelty-seeking. High = imaginative, creative; Low = practical, routine-oriented.
 
-اكتب تقريراً إكلينيكياً متكاملاً بالعربية الفصحى فقط، يشمل الأقسام التالية:
+Write a full professional personality assessment report with the following sections:
 
-أولاً: نظرة عامة على التقييم
-ثانياً: الملف الشخصي العام
-ثالثاً: تحليل السمات بشكل منفرد (لكل سمة: الدرجة، التفسير، الانعكاسات)
-رابعاً: تفاعل السمات والأنماط الإكلينيكية
-خامساً: نقاط القوة ومحاور النمو
-سادساً: التوجيهات العلاجية والعملية
-سابعاً: الخلاصة الإكلينيكية
+1. ASSESSMENT OVERVIEW
+2. PERSONALITY PROFILE SUMMARY
+3. TRAIT-BY-TRAIT ANALYSIS (for each trait: score, level, clinical interpretation, behavioral implications)
+4. TRAIT INTERACTIONS & CLINICAL PATTERNS
+5. STRENGTHS & GROWTH AREAS
+6. THERAPEUTIC & PRACTICAL IMPLICATIONS
+7. SUMMARY (one paragraph for clinical records in BFPT format)
 
-تذكير أخير: لا إنجليزية إطلاقاً في أي موضع من التقرير. كل شيء عربي فصيح."""
+Use formal clinical language. Be specific to the actual scores. Ready for placement in a clinical file."""
 
     response = requests.post(
         "https://api.groq.com/openai/v1/chat/completions",
@@ -289,7 +287,7 @@ def generate_report(client_name, scores, responses):
             "model": "llama-3.3-70b-versatile",
             "messages": [{"role": "user", "content": prompt}],
             "max_tokens": 2500,
-            "temperature": 0.3,
+            "temperature": 0.4,
         },
         timeout=60,
     )
@@ -299,43 +297,14 @@ def generate_report(client_name, scores, responses):
             error_detail = response.json()
         except Exception:
             error_detail = response.text
-        raise Exception(f"خطأ في توليد التقرير {response.status_code}: {error_detail}")
+        raise Exception(f"Groq API error {response.status_code}: {error_detail}")
 
     report = response.json()["choices"][0]["message"]["content"].strip()
-
-    # Return both the report and the Arabic name for use in the PDF
-    return report, arabic_name
+    return report, english_name
 
 # ══════════════════════════════════════════════════════════════
-#  إنشاء تقرير PDF
+#  إنشاء تقرير PDF — English report, standard fonts
 # ══════════════════════════════════════════════════════════════
-
-def setup_arabic_font():
-    """Register Arabic font from repo. Font file must be in repo root."""
-    font_path = "Amiri-Regular.ttf"
-    font_path_bold = "Amiri-Bold.ttf"
-    if os.path.exists(font_path):
-        pdfmetrics.registerFont(TTFont("Amiri", font_path))
-        if os.path.exists(font_path_bold):
-            pdfmetrics.registerFont(TTFont("Amiri-Bold", font_path_bold))
-            return "Amiri", "Amiri-Bold"
-        return "Amiri", "Amiri"
-    return "Helvetica", "Helvetica-Bold"
-
-def ar(text):
-    """
-    Reshape Arabic text for correct PDF rendering with ReportLab + Amiri font.
-    arabic_reshaper connects the letters properly.
-    get_display (BiDi) is NOT used here — ReportLab with a proper RTL font
-    handles the direction. Applying BiDi on top causes double-reversal (symbols).
-    """
-    if not text:
-        return ""
-    try:
-        reshaped = arabic_reshaper.reshape(str(text))
-        return get_display(reshaped)
-    except Exception:
-        return str(text)
 
 def create_pdf_report(path, client_name, scores, report_text, timestamp):
     DARK   = colors.HexColor("#1C1917")
@@ -352,24 +321,22 @@ def create_pdf_report(path, client_name, scores, report_text, timestamp):
         "O": colors.HexColor("#9B59B6"),
     }
 
-    FONT, FONT_BOLD = setup_arabic_font()
-
     doc = SimpleDocTemplate(
         path, pagesize=A4,
         leftMargin=2.2*cm, rightMargin=2.2*cm,
         topMargin=2*cm, bottomMargin=2*cm
     )
 
-    title_s   = ParagraphStyle("T",  fontName=FONT_BOLD, fontSize=18, textColor=DARK,  alignment=TA_CENTER, spaceAfter=3,  wordWrap='RTL')
-    sub_s     = ParagraphStyle("S",  fontName=FONT,      fontSize=10, textColor=WARM,  alignment=TA_CENTER, spaceAfter=2,  wordWrap='RTL')
-    meta_s    = ParagraphStyle("M",  fontName=FONT,      fontSize=8,  textColor=WARM,  alignment=TA_CENTER, spaceAfter=12, wordWrap='RTL')
-    section_s = ParagraphStyle("Se", fontName=FONT_BOLD, fontSize=10, textColor=WARM,  spaceBefore=12, spaceAfter=4, alignment=TA_RIGHT, wordWrap='RTL')
-    body_s    = ParagraphStyle("B",  fontName=FONT,      fontSize=10, textColor=DARK,  leading=18, spaceAfter=6, alignment=TA_RIGHT, wordWrap='RTL')
-    small_s   = ParagraphStyle("Sm", fontName=FONT,      fontSize=9,  textColor=WARM,  leading=14, alignment=TA_RIGHT, wordWrap='RTL')
-    footer_s  = ParagraphStyle("Ft", fontName=FONT,      fontSize=8,  textColor=WARM,  leading=12, alignment=TA_CENTER, wordWrap='RTL')
+    title_s   = ParagraphStyle("T",  fontName="Times-Roman",      fontSize=20, textColor=DARK,  alignment=TA_CENTER, spaceAfter=3)
+    sub_s     = ParagraphStyle("S",  fontName="Times-Italic",      fontSize=10, textColor=WARM,  alignment=TA_CENTER, spaceAfter=2)
+    meta_s    = ParagraphStyle("M",  fontName="Helvetica",         fontSize=8,  textColor=WARM,  alignment=TA_CENTER, spaceAfter=12)
+    section_s = ParagraphStyle("Se", fontName="Helvetica-Bold",    fontSize=10, textColor=WARM,  spaceBefore=12, spaceAfter=4)
+    body_s    = ParagraphStyle("B",  fontName="Helvetica",         fontSize=9.5,textColor=DARK,  leading=15, spaceAfter=5)
+    small_s   = ParagraphStyle("Sm", fontName="Helvetica",         fontSize=8.5,textColor=WARM,  leading=13)
+    footer_s  = ParagraphStyle("Ft", fontName="Helvetica-Oblique", fontSize=7.5,textColor=WARM,  leading=11, alignment=TA_CENTER)
 
     story = []
-    date_str = datetime.datetime.now().strftime("%d / %m / %Y  —  %H:%M")
+    date_str = datetime.datetime.now().strftime("%B %d, %Y  |  %H:%M")
 
     if os.path.exists(LOGO_FILE):
         try:
@@ -380,19 +347,19 @@ def create_pdf_report(path, client_name, scores, report_text, timestamp):
         except Exception:
             pass
 
-    story.append(Paragraph(ar("اختبار الشخصية الخمسة الكبرى"), title_s))
-    story.append(Paragraph(ar("تقرير التقييم الإكلينيكي للشخصية"), sub_s))
-    story.append(Paragraph(ar(f"سري وخاص  ·  {date_str}"), meta_s))
+    story.append(Paragraph("Big Five Personality Test", title_s))
+    story.append(Paragraph("Clinical Personality Assessment Report", sub_s))
+    story.append(Paragraph(f"CONFIDENTIAL  ·  {date_str}", meta_s))
     story.append(HRFlowable(width="100%", thickness=1, color=BORDER))
     story.append(Spacer(1, 0.3*cm))
 
     info_data = [
-        [Paragraph(ar("المُقيَّم"), small_s), Paragraph(ar(client_name), body_s),
-         Paragraph(ar("الاختبار"), small_s), Paragraph(ar("اختبار الشخصية الخمسة الكبرى"), body_s)],
-        [Paragraph(ar("التاريخ"), small_s), Paragraph(ar(date_str), body_s),
-         Paragraph(ar("نطاق الدرجات"), small_s), Paragraph(ar("من صفر إلى أربعين لكل سمة"), body_s)],
+        [Paragraph("<b>Client</b>", small_s), Paragraph(client_name, body_s),
+         Paragraph("<b>Assessment</b>", small_s), Paragraph("BFPT (50 items)", body_s)],
+        [Paragraph("<b>Date</b>", small_s), Paragraph(date_str, body_s),
+         Paragraph("<b>Score Range</b>", small_s), Paragraph("0 – 40 per trait", body_s)],
     ]
-    it = Table(info_data, colWidths=[3*cm, 6*cm, 3.5*cm, 4.5*cm])
+    it = Table(info_data, colWidths=[3*cm, 6*cm, 3*cm, 5*cm])
     it.setStyle(TableStyle([
         ("BACKGROUND", (0,0),(-1,-1), LIGHT),
         ("BOX",        (0,0),(-1,-1), 0.5, BORDER),
@@ -404,20 +371,20 @@ def create_pdf_report(path, client_name, scores, report_text, timestamp):
     story.append(it)
     story.append(Spacer(1, 0.4*cm))
 
-    story.append(Paragraph(ar("ملخص درجات السمات"), section_s))
+    story.append(Paragraph("TRAIT SCORE SUMMARY", section_s))
     story.append(HRFlowable(width="100%", thickness=0.5, color=BORDER))
     story.append(Spacer(1, 0.2*cm))
 
     score_header = [
-        Paragraph(ar("السمة"), small_s),
-        Paragraph(ar("الدرجة"), small_s),
-        Paragraph(ar("المستوى"), small_s),
-        Paragraph(ar("المؤشر البياني — من صفر إلى أربعين"), small_s),
+        Paragraph("<b>Trait</b>", small_s),
+        Paragraph("<b>Score</b>", small_s),
+        Paragraph("<b>Level</b>", small_s),
+        Paragraph("<b>Range Bar (0 ──────────────── 40)</b>", small_s),
     ]
     score_rows = [score_header]
     for t in ["E", "A", "C", "N", "O"]:
         sc   = scores[t]
-        lvl  = get_level(sc)
+        lvl  = get_level_en(sc)
         meta = TRAIT_META[t]
         tc   = TRAIT_COLORS[t]
         bar_filled = max(0, min(28, int((sc / 40) * 28)))
@@ -429,12 +396,12 @@ def create_pdf_report(path, client_name, scores, report_text, timestamp):
             ParagraphStyle("BR", fontName="Courier", fontSize=8, leading=12)
         )
         score_rows.append([
-            Paragraph(ar(meta["name"]),
-                      ParagraphStyle("TN", fontName=FONT_BOLD, fontSize=9, textColor=tc, alignment=TA_RIGHT, wordWrap="RTL")),
-            Paragraph(ar(f"{sc} من 40"),
-                      ParagraphStyle("SC", fontName=FONT_BOLD, fontSize=9, textColor=tc, alignment=TA_CENTER, wordWrap="RTL")),
-            Paragraph(ar(lvl),
-                      ParagraphStyle("LV", fontName=FONT, fontSize=9, textColor=DARK, alignment=TA_CENTER, wordWrap="RTL")),
+            Paragraph(f"<b>{meta['name_en']} ({t})</b>",
+                      ParagraphStyle("TN", fontName="Helvetica-Bold", fontSize=9, textColor=tc)),
+            Paragraph(f"<b>{sc}/40</b>",
+                      ParagraphStyle("SC", fontName="Helvetica-Bold", fontSize=9, textColor=tc, alignment=TA_CENTER)),
+            Paragraph(lvl,
+                      ParagraphStyle("LV", fontName="Helvetica", fontSize=9, textColor=DARK, alignment=TA_CENTER)),
             bar_para,
         ])
 
@@ -457,7 +424,7 @@ def create_pdf_report(path, client_name, scores, report_text, timestamp):
 
     story.append(HRFlowable(width="100%", thickness=1, color=BORDER))
     story.append(Spacer(1, 0.3*cm))
-    story.append(Paragraph(ar("التقرير الإكلينيكي"), section_s))
+    story.append(Paragraph("CLINICAL REPORT", section_s))
     story.append(HRFlowable(width="100%", thickness=0.5, color=BORDER))
     story.append(Spacer(1, 0.2*cm))
 
@@ -465,18 +432,18 @@ def create_pdf_report(path, client_name, scores, report_text, timestamp):
         line = line.strip()
         if not line:
             story.append(Spacer(1, 0.18*cm))
-        elif line.endswith(":") and len(line) < 60:
-            story.append(Paragraph(ar(line), section_s))
+        elif line.isupper() or (line.endswith(":") and len(line) < 60):
+            story.append(Paragraph(line, section_s))
         else:
-            # Clean markdown bold markers
-            line = line.replace("**", "").replace("* ", "").replace("*", "")
-            story.append(Paragraph(ar(line), body_s))
+            story.append(Paragraph(line, body_s))
 
     story.append(Spacer(1, 0.5*cm))
     story.append(HRFlowable(width="100%", thickness=0.5, color=BORDER))
     story.append(Spacer(1, 0.2*cm))
     story.append(Paragraph(
-        ar("هذا التقرير سري للغاية ومُعدّ للاستخدام الحصري من قِبَل المعالج المختص. لا يجوز مشاركته مع المُقيَّم أو أي طرف ثالث دون إذن كتابي صريح."),
+        "This report is strictly confidential and intended solely for the treating clinician. "
+        "It is not to be shared with the client or any third party without explicit written consent. "
+        "AI-assisted analysis should be reviewed in conjunction with clinical judgment.",
         footer_s
     ))
     doc.build(story)
@@ -497,7 +464,7 @@ def send_report_email(pdf_path, client_name, scores, filename):
     msg = MIMEMultipart("mixed")
     msg["From"]    = GMAIL_ADDRESS
     msg["To"]      = THERAPIST_EMAIL
-    msg["Subject"] = f"[تقرير الشخصية الخمسة الكبرى] {client_name} — {date_str}"
+    msg["Subject"] = f"[BFPT Report] {client_name} — {date_str}"
 
     body_html = f"""
     <html><body style="font-family:Georgia,serif;color:#1C1917;background:#F7F4F0;padding:24px;direction:rtl;">
