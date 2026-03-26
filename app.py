@@ -348,6 +348,7 @@ def create_pdf_report(path, client_name, scores, report_text, timestamp):
             pass
 
     story.append(Paragraph("Big Five Personality Test", title_s))
+    story.append(Spacer(1, 0.5*cm))
     story.append(Paragraph("Clinical Personality Assessment Report", sub_s))
     story.append(Paragraph(f"CONFIDENTIAL  ·  {date_str}", meta_s))
     story.append(HRFlowable(width="100%", thickness=1, color=BORDER))
