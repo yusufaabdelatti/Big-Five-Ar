@@ -323,14 +323,19 @@ def setup_arabic_font():
     return "Helvetica", "Helvetica-Bold"
 
 def ar(text):
-    """Reshape and apply BiDi to Arabic text for correct PDF rendering."""
+    """
+    Reshape Arabic text for correct PDF rendering with ReportLab + Amiri font.
+    arabic_reshaper connects the letters properly.
+    get_display (BiDi) is NOT used here — ReportLab with a proper RTL font
+    handles the direction. Applying BiDi on top causes double-reversal (symbols).
+    """
     if not text:
         return ""
     try:
-        reshaped = arabic_reshaper.reshape(text)
+        reshaped = arabic_reshaper.reshape(str(text))
         return get_display(reshaped)
     except Exception:
-        return text
+        return str(text)
 
 def create_pdf_report(path, client_name, scores, report_text, timestamp):
     DARK   = colors.HexColor("#1C1917")
@@ -355,13 +360,13 @@ def create_pdf_report(path, client_name, scores, report_text, timestamp):
         topMargin=2*cm, bottomMargin=2*cm
     )
 
-    title_s   = ParagraphStyle("T",  fontName=FONT_BOLD, fontSize=18, textColor=DARK,  alignment=TA_CENTER, spaceAfter=3)
-    sub_s     = ParagraphStyle("S",  fontName=FONT,      fontSize=10, textColor=WARM,  alignment=TA_CENTER, spaceAfter=2)
-    meta_s    = ParagraphStyle("M",  fontName=FONT,      fontSize=8,  textColor=WARM,  alignment=TA_CENTER, spaceAfter=12)
-    section_s = ParagraphStyle("Se", fontName=FONT_BOLD, fontSize=10, textColor=WARM,  spaceBefore=12, spaceAfter=4, alignment=TA_RIGHT)
-    body_s    = ParagraphStyle("B",  fontName=FONT,      fontSize=10, textColor=DARK,  leading=18, spaceAfter=6, alignment=TA_RIGHT)
-    small_s   = ParagraphStyle("Sm", fontName=FONT,      fontSize=9,  textColor=WARM,  leading=14, alignment=TA_RIGHT)
-    footer_s  = ParagraphStyle("Ft", fontName=FONT,      fontSize=8,  textColor=WARM,  leading=12, alignment=TA_CENTER)
+    title_s   = ParagraphStyle("T",  fontName=FONT_BOLD, fontSize=18, textColor=DARK,  alignment=TA_CENTER, spaceAfter=3,  wordWrap='RTL')
+    sub_s     = ParagraphStyle("S",  fontName=FONT,      fontSize=10, textColor=WARM,  alignment=TA_CENTER, spaceAfter=2,  wordWrap='RTL')
+    meta_s    = ParagraphStyle("M",  fontName=FONT,      fontSize=8,  textColor=WARM,  alignment=TA_CENTER, spaceAfter=12, wordWrap='RTL')
+    section_s = ParagraphStyle("Se", fontName=FONT_BOLD, fontSize=10, textColor=WARM,  spaceBefore=12, spaceAfter=4, alignment=TA_RIGHT, wordWrap='RTL')
+    body_s    = ParagraphStyle("B",  fontName=FONT,      fontSize=10, textColor=DARK,  leading=18, spaceAfter=6, alignment=TA_RIGHT, wordWrap='RTL')
+    small_s   = ParagraphStyle("Sm", fontName=FONT,      fontSize=9,  textColor=WARM,  leading=14, alignment=TA_RIGHT, wordWrap='RTL')
+    footer_s  = ParagraphStyle("Ft", fontName=FONT,      fontSize=8,  textColor=WARM,  leading=12, alignment=TA_CENTER, wordWrap='RTL')
 
     story = []
     date_str = datetime.datetime.now().strftime("%d / %m / %Y  —  %H:%M")
@@ -425,11 +430,11 @@ def create_pdf_report(path, client_name, scores, report_text, timestamp):
         )
         score_rows.append([
             Paragraph(ar(meta["name"]),
-                      ParagraphStyle("TN", fontName=FONT_BOLD, fontSize=9, textColor=tc, alignment=TA_RIGHT)),
+                      ParagraphStyle("TN", fontName=FONT_BOLD, fontSize=9, textColor=tc, alignment=TA_RIGHT, wordWrap="RTL")),
             Paragraph(ar(f"{sc} من 40"),
-                      ParagraphStyle("SC", fontName=FONT_BOLD, fontSize=9, textColor=tc, alignment=TA_CENTER)),
+                      ParagraphStyle("SC", fontName=FONT_BOLD, fontSize=9, textColor=tc, alignment=TA_CENTER, wordWrap="RTL")),
             Paragraph(ar(lvl),
-                      ParagraphStyle("LV", fontName=FONT, fontSize=9, textColor=DARK, alignment=TA_CENTER)),
+                      ParagraphStyle("LV", fontName=FONT, fontSize=9, textColor=DARK, alignment=TA_CENTER, wordWrap="RTL")),
             bar_para,
         ])
 
@@ -793,6 +798,8 @@ else:
             <p>تم تسليم إجاباتك بنجاح.<br>
             سيتواصل معك المعالج في أقرب وقت.</p>
         </div>""", unsafe_allow_html=True)
+        if st.session_state.get("email_error"):
+            st.warning(f"ملاحظة: فشل إرسال البريد الإلكتروني — {st.session_state.email_error}")
     else:
         if os.path.exists(LOGO_FILE):
             col1, col2, col3 = st.columns([1, 2, 1])
@@ -878,12 +885,23 @@ else:
                 os.makedirs("reports", exist_ok=True)
                 pdf_path  = os.path.join("reports", filename)
 
-                create_pdf_report(pdf_path, arabic_name or "غير محدد", scores, report_text, timestamp)
+                try:
+                    create_pdf_report(pdf_path, arabic_name or "غير محدد", scores, report_text, timestamp)
+                except Exception as pdf_err:
+                    st.error(f"خطأ في إنشاء ملف PDF: {pdf_err}")
+                    st.stop()
 
+                # Verify PDF was actually created and has content
+                if not os.path.exists(pdf_path) or os.path.getsize(pdf_path) < 100:
+                    st.error("فشل إنشاء ملف PDF — تأكد من وجود ملفات الخط العربي (Amiri-Regular.ttf) في مجلد التطبيق.")
+                    st.stop()
+
+                email_error = None
                 try:
                     send_report_email(pdf_path, arabic_name or "غير محدد", scores, filename)
                 except Exception as e:
-                    st.warning(f"تم حفظ التقرير لكن فشل الإرسال بالبريد: {e}")
+                    email_error = str(e)
 
                 st.session_state.submitted = True
+                st.session_state.email_error = email_error
                 st.rerun()
