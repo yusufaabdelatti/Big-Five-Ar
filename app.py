@@ -165,7 +165,7 @@ def get_level(score: int) -> str:
 TRAIT_META = {
     "E": {
         "name": "الانبساطية",
-        "name_en": "Extroversion",
+        
         "color": "#4A90D9",
         "low":      "يميل إلى الانطوائية والتأمل الداخلي، ويُفضّل العمل باستقلالية أو في بيئات أكثر هدوءاً وخصوصية.",
         "moderate": "يُظهر توازناً بين الانخراط الاجتماعي والميل نحو العزلة بحسب السياق والظروف.",
@@ -173,7 +173,7 @@ TRAIT_META = {
     },
     "A": {
         "name": "الطيبة والتوافقية",
-        "name_en": "Agreeableness",
+        
         "color": "#5CB85C",
         "low":      "يميل إلى المباشرة والتنافسية، وقد يُقدّم أهدافه الشخصية على حساب الانسجام الجماعي.",
         "moderate": "قادر على التعاون والمرونة مع الحفاظ على تأكيد احتياجاته الشخصية عند الاقتضاء.",
@@ -181,7 +181,7 @@ TRAIT_META = {
     },
     "C": {
         "name": "الضمير الحي والانضباط",
-        "name_en": "Conscientiousness",
+        
         "color": "#F0AD4E",
         "low":      "قد يتسم بالمرونة والعفوية، لكنه قد يعاني من صعوبة في التنظيم والمتابعة المنهجية.",
         "moderate": "موثوق ومنظم بشكل عام، مع بعض التفاوت في إنجاز المهام والالتزام الذاتي.",
@@ -189,7 +189,7 @@ TRAIT_META = {
     },
     "N": {
         "name": "العصابية",
-        "name_en": "Neuroticism",
+        
         "color": "#D9534F",
         "low":      "يتسم بالاستقرار الانفعالي والهدوء تحت الضغط، وأقل تأثراً بالضغوط والمثيرات.",
         "moderate": "يُبدي استجابة انفعالية معتدلة؛ قد يشعر بالضغط في المواقف الصعبة لكنه يتكيف في الغالب.",
@@ -197,7 +197,7 @@ TRAIT_META = {
     },
     "O": {
         "name": "الانفتاح على التجربة",
-        "name_en": "Openness to Experience",
+        
         "color": "#9B59B6",
         "low":      "يُفضّل الروتين والتفكير الواقعي الملموس والبيئات المألوفة؛ عملي وأرضي الطابع.",
         "moderate": "يُبدي فضولاً وإبداعاً في بعض المجالات مع تفضيله للبنية والقدرة على التنبؤ في مجالات أخرى.",
@@ -209,69 +209,78 @@ TRAIT_META = {
 #  توليد التقرير عبر Groq
 # ══════════════════════════════════════════════════════════════
 
+def translate_name(name, api_key):
+    """If name contains English letters, ask Groq to transliterate it to Arabic."""
+    if not name or not any(c.isascii() and c.isalpha() for c in name):
+        return name
+    try:
+        response = requests.post(
+            "https://api.groq.com/openai/v1/chat/completions",
+            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+            json={
+                "model": "llama-3.3-70b-versatile",
+                "messages": [{"role": "user", "content":
+                    f"حوّل الاسم التالي إلى العربية بالتعريب الصوتي الصحيح المتعارف عليه. أعطني الاسم فقط بدون أي شرح أو علامات ترقيم: {name}"}],
+                "max_tokens": 50,
+                "temperature": 0.1,
+            },
+            timeout=15,
+        )
+        if response.ok:
+            result = response.json()["choices"][0]["message"]["content"].strip()
+            return result if result else name
+    except Exception:
+        pass
+    return name
+
 def generate_report(client_name, scores, responses):
+    api_key = st.secrets.get("GROQ_API_KEY", "")
+    if not api_key:
+        raise ValueError("مفتاح GROQ_API_KEY غير موجود في إعدادات التطبيق.")
+
+    # Translate name to Arabic if it contains English
+    arabic_name = translate_name(client_name, api_key)
+
     trait_lines = "\n".join(
-        f"  {TRAIT_META[t]['name']} ({TRAIT_META[t]['name_en']}) ({t}): {scores[t]}/40 — {get_level(scores[t])}"
+        f"  {TRAIT_META[t]['name']}: {scores[t]} من أربعين — {get_level(scores[t])}"
         for t in ["E", "A", "C", "N", "O"]
     )
 
     prompt = f"""أنت طبيب نفسي إكلينيكي متخصص تكتب تقريراً تقييمياً مهنياً وسرياً للشخصية.
 
-اكتب التقرير كاملاً باللغة العربية الفصحى ذات الطابع الإكلينيكي الرسمي.
-تجنّب الأسلوب الحرفي وأسلوب الترجمة المباشرة. استخدم المصطلحات النفسية العربية المعتمدة.
+قاعدة مطلقة لا استثناء فيها: اكتب التقرير كاملاً باللغة العربية الفصحى حصراً.
+لا تكتب أي كلمة أو حرف أو رمز بالإنجليزية في أي جزء من التقرير مطلقاً.
+حتى أسماء الاختبارات والمصطلحات العلمية — اكتبها بالعربية فقط.
+اسم المُقيَّم: {arabic_name}
 
-المُقيَّم: {client_name}
-الاختبار: اختبار الشخصية الخمسة الكبرى (BFPT) — 50 فقرة، مقياس من 1 إلى 5، الدرجة من 0 إلى 40 لكل سمة
+الاختبار: اختبار الشخصية الخمسة الكبرى — خمسون فقرة، مقياس من واحد إلى خمسة، الدرجة من صفر إلى أربعين لكل سمة.
 
 درجات السمات:
 {trait_lines}
 
 مرجع التفسير:
-- 0–13: مستوى منخفض  |  14–26: مستوى متوسط  |  27–40: مستوى مرتفع
+- من صفر إلى ثلاثة عشر: مستوى منخفض
+- من أربعة عشر إلى ستة وعشرين: مستوى متوسط
+- من سبعة وعشرين إلى أربعين: مستوى مرتفع
 
 وصف السمات:
-- الانبساطية (E): مدى استمداد الفرد طاقته من المحيط الخارجي والتفاعل الاجتماعي. مرتفع = اجتماعي نشط؛ منخفض = انطوائي يُفضّل الاستقلالية.
-- الطيبة والتوافقية (A): مدى تكيّف الفرد مع الآخرين. مرتفع = متعاون ودود؛ منخفض = مباشر صريح.
-- الضمير الحي والانضباط (C): مدى التنظيم والمثابرة. مرتفع = منضبط ملتزم؛ منخفض = مرن عفوي.
-- العصابية (N): مستوى الاستجابة الانفعالية. مرتفع = قابل للتأثر الانفعالي؛ منخفض = مستقر انفعالياً.
-- الانفتاح على التجربة (O): الفضول الفكري والانجذاب للجديد. مرتفع = خيالي مبدع؛ منخفض = عملي واقعي.
+- الانبساطية: مدى استمداد الفرد طاقته من المحيط الخارجي. مرتفع = اجتماعي نشط؛ منخفض = انطوائي.
+- الطيبة والتوافقية: مدى تكيّف الفرد مع الآخرين. مرتفع = متعاون ودود؛ منخفض = مباشر صريح.
+- الضمير الحي والانضباط: مدى التنظيم والمثابرة. مرتفع = منضبط ملتزم؛ منخفض = مرن عفوي.
+- العصابية: مستوى الاستجابة الانفعالية. مرتفع = قابل للتأثر؛ منخفض = مستقر انفعالياً.
+- الانفتاح على التجربة: الفضول الفكري. مرتفع = خيالي مبدع؛ منخفض = عملي واقعي.
 
-اكتب تقريراً إكلينيكياً متكاملاً يشمل الأقسام التالية:
+اكتب تقريراً إكلينيكياً متكاملاً بالعربية الفصحى فقط، يشمل الأقسام التالية:
 
-١. نظرة عامة على التقييم
-   - الأداة المستخدمة، الغرض منها، سياق التطبيق.
+أولاً: نظرة عامة على التقييم
+ثانياً: الملف الشخصي العام
+ثالثاً: تحليل السمات بشكل منفرد (لكل سمة: الدرجة، التفسير، الانعكاسات)
+رابعاً: تفاعل السمات والأنماط الإكلينيكية
+خامساً: نقاط القوة ومحاور النمو
+سادساً: التوجيهات العلاجية والعملية
+سابعاً: الخلاصة الإكلينيكية
 
-٢. الملف الشخصي العام
-   - سرد إكلينيكي متكامل للملف الشخصي للمُقيَّم وفق النموذج الخماسي. استحضر جميع الدرجات الخمس.
-   - أبرز السمات الطاغية وأي أنماط إكلينيكية لافتة أو تناقضات بين السمات.
-
-٣. تحليل السمات بشكل منفرد
-   لكل سمة من السمات الخمس اكتب فقرة إكلينيكية تتضمن:
-   - الدرجة ومستوى التصنيف (منخفض / متوسط / مرتفع)
-   - التفسير الإكلينيكي الخاص بهذا المُقيَّم
-   - الانعكاسات على السلوك والعلاقات والعمل والصحة النفسية
-
-٤. تفاعل السمات والأنماط الإكلينيكية
-   - ناقش كيف يُكوّن تضافر الدرجات صورة شخصية متماسكة.
-   - أبرز التفاعلات الدالة (مثل: عصابية مرتفعة مع انبساطية منخفضة، ضمير مرتفع مع توافقية مرتفعة...).
-
-٥. نقاط القوة ومحاور النمو
-   - استناداً إلى الملف، حدّد نقاط القوة النفسية للمُقيَّم.
-   - حدّد المحاور التي قد تستفيد من الدعم العلاجي أو التطوير الذاتي.
-
-٦. التوجيهات العلاجية والعملية
-   - اقتراحات مستندة إلى الأدلة تشمل: أسلوب التدخل العلاجي، نمط التواصل، توصيات عملية.
-   - كيف يؤثر هذا الملف على العلاقة العلاجية.
-
-٧. الخلاصة الإكلينيكية
-   - فقرة موجزة صالحة للتوثيق في الملف الإكلينيكي وفق الصيغة المعتمدة:
-     "وفقاً لاختبار الشخصية الخمسة الكبرى (BFPT)، يُفيد المُقيَّم ذاتياً بـ [وصف كل سمة مع درجتها]."
-
-استخدم أسلوباً إكلينيكياً رصيناً. كن دقيقاً ومحدداً وفق الدرجات الفعلية. التقرير جاهز للإدراج في الملف الإكلينيكي."""
-
-    api_key = st.secrets.get("GROQ_API_KEY", "")
-    if not api_key:
-        raise ValueError("مفتاح GROQ_API_KEY غير موجود في إعدادات التطبيق.")
+تذكير أخير: لا إنجليزية إطلاقاً في أي موضع من التقرير. كل شيء عربي فصيح."""
 
     response = requests.post(
         "https://api.groq.com/openai/v1/chat/completions",
@@ -280,7 +289,7 @@ def generate_report(client_name, scores, responses):
             "model": "llama-3.3-70b-versatile",
             "messages": [{"role": "user", "content": prompt}],
             "max_tokens": 2500,
-            "temperature": 0.4,
+            "temperature": 0.3,
         },
         timeout=60,
     )
@@ -290,9 +299,12 @@ def generate_report(client_name, scores, responses):
             error_detail = response.json()
         except Exception:
             error_detail = response.text
-        raise Exception(f"خطأ في Groq API {response.status_code}: {error_detail}")
+        raise Exception(f"خطأ في توليد التقرير {response.status_code}: {error_detail}")
 
-    return response.json()["choices"][0]["message"]["content"].strip()
+    report = response.json()["choices"][0]["message"]["content"].strip()
+
+    # Return both the report and the Arabic name for use in the PDF
+    return report, arabic_name
 
 # ══════════════════════════════════════════════════════════════
 #  إنشاء تقرير PDF
@@ -371,9 +383,9 @@ def create_pdf_report(path, client_name, scores, report_text, timestamp):
 
     info_data = [
         [Paragraph(ar("المُقيَّم"), small_s), Paragraph(ar(client_name), body_s),
-         Paragraph(ar("الاختبار"), small_s), Paragraph(ar("BFPT — 50 فقرة"), body_s)],
+         Paragraph(ar("الاختبار"), small_s), Paragraph(ar("اختبار الشخصية الخمسة الكبرى"), body_s)],
         [Paragraph(ar("التاريخ"), small_s), Paragraph(ar(date_str), body_s),
-         Paragraph(ar("نطاق الدرجات"), small_s), Paragraph(ar("0 – 40 لكل سمة"), body_s)],
+         Paragraph(ar("نطاق الدرجات"), small_s), Paragraph(ar("من صفر إلى أربعين لكل سمة"), body_s)],
     ]
     it = Table(info_data, colWidths=[3*cm, 6*cm, 3.5*cm, 4.5*cm])
     it.setStyle(TableStyle([
@@ -395,7 +407,7 @@ def create_pdf_report(path, client_name, scores, report_text, timestamp):
         Paragraph(ar("السمة"), small_s),
         Paragraph(ar("الدرجة"), small_s),
         Paragraph(ar("المستوى"), small_s),
-        Paragraph(ar("المؤشر البياني"), small_s),
+        Paragraph(ar("المؤشر البياني — من صفر إلى أربعين"), small_s),
     ]
     score_rows = [score_header]
     for t in ["E", "A", "C", "N", "O"]:
@@ -414,7 +426,7 @@ def create_pdf_report(path, client_name, scores, report_text, timestamp):
         score_rows.append([
             Paragraph(ar(meta["name"]),
                       ParagraphStyle("TN", fontName=FONT_BOLD, fontSize=9, textColor=tc, alignment=TA_RIGHT)),
-            Paragraph(f"<b>{sc}/40</b>",
+            Paragraph(ar(f"{sc} من 40"),
                       ParagraphStyle("SC", fontName=FONT_BOLD, fontSize=9, textColor=tc, alignment=TA_CENTER)),
             Paragraph(ar(lvl),
                       ParagraphStyle("LV", fontName=FONT, fontSize=9, textColor=DARK, alignment=TA_CENTER)),
@@ -473,14 +485,14 @@ def send_report_email(pdf_path, client_name, scores, filename):
 
     trait_rows = "".join(
         f"<tr><td style='padding:6px 0;color:#6B5B45;width:45%;'>{TRAIT_META[t]['name']}</td>"
-        f"<td><strong style='color:{TRAIT_META[t]['color']};'>{scores[t]}/40 — {get_level(scores[t])}</strong></td></tr>"
+        f"<td><strong style='color:{TRAIT_META[t]['color']};'>{scores[t]} من 40 — {get_level(scores[t])}</strong></td></tr>"
         for t in ["E", "A", "C", "N", "O"]
     )
 
     msg = MIMEMultipart("mixed")
     msg["From"]    = GMAIL_ADDRESS
     msg["To"]      = THERAPIST_EMAIL
-    msg["Subject"] = f"[تقرير BFPT] {client_name} — {date_str}"
+    msg["Subject"] = f"[تقرير الشخصية الخمسة الكبرى] {client_name} — {date_str}"
 
     body_html = f"""
     <html><body style="font-family:Georgia,serif;color:#1C1917;background:#F7F4F0;padding:24px;direction:rtl;">
@@ -858,18 +870,18 @@ else:
         if submit and all_answered:
             with st.spinner("جاري تسليم إجاباتك..."):
                 scores = calculate_scores(responses)
-                report_text = generate_report(client_name or "غير محدد", scores, responses)
+                report_text, arabic_name = generate_report(client_name or "غير محدد", scores, responses)
 
                 timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-                safe_name = (client_name or "مجهول").replace(" ", "_")
+                safe_name = (arabic_name or "مجهول").replace(" ", "_")
                 filename  = f"BFPT_AR_{safe_name}_{timestamp}.pdf"
                 os.makedirs("reports", exist_ok=True)
                 pdf_path  = os.path.join("reports", filename)
 
-                create_pdf_report(pdf_path, client_name or "غير محدد", scores, report_text, timestamp)
+                create_pdf_report(pdf_path, arabic_name or "غير محدد", scores, report_text, timestamp)
 
                 try:
-                    send_report_email(pdf_path, client_name or "غير محدد", scores, filename)
+                    send_report_email(pdf_path, arabic_name or "غير محدد", scores, filename)
                 except Exception as e:
                     st.warning(f"تم حفظ التقرير لكن فشل الإرسال بالبريد: {e}")
 
