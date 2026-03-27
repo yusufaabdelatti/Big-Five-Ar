@@ -755,10 +755,42 @@ if page == "admin":
             st.rerun()
 
 else:
-    # ── واجهة المريض ──────────────────────────────────────────────
-    if "submitted" not in st.session_state:
-        st.session_state.submitted = False
+    if "submitted"      not in st.session_state: st.session_state.submitted = False
+    if "access_granted" not in st.session_state: st.session_state.access_granted = False
 
+    if not st.session_state.access_granted:
+        if os.path.exists(LOGO_FILE):
+            col1, col2, col3 = st.columns([1, 2, 1])
+            with col2: st.image(LOGO_FILE, use_container_width=True)
+        st.markdown("""<div class="page-header">
+            <p>تقييم نفسي سري</p>
+            <h1>اختبار الشخصية الخمسة الكبرى</h1>
+        </div>""", unsafe_allow_html=True)
+        st.markdown("""<div style="max-width:360px;margin:0 auto;padding:2rem 0;text-align:center;direction:rtl;">
+            <p style="color:#6B5B45;font-size:.9rem;margin-bottom:1.5rem;line-height:1.8;">
+                هذا التقييم متاح للمرضى المحالين فقط.<br>
+                يرجى إدخال رمز الوصول الذي زوّدك به معالجك.
+            </p>
+        </div>""", unsafe_allow_html=True)
+        col_a, col_b, col_c = st.columns([1, 2, 1])
+        with col_b:
+            code = st.text_input("رمز الوصول", type="password",
+                                 placeholder="أدخل رمز الوصول",
+                                 label_visibility="collapsed")
+            if st.button("دخول", use_container_width=True):
+                if code == st.secrets.get("ACCESS_CODE", ""):
+                    st.session_state.access_granted = True
+                    st.rerun()
+                else:
+                    st.markdown("""<div style="background:#FFF0F0;border-right:3px solid #D9534F;
+                        border-left:none;padding:.8rem 1rem;border-radius:4px 0 0 4px;
+                        font-size:.88rem;color:#7A1A1A;margin:.5rem 0;
+                        direction:rtl;text-align:right;">
+                        &#9888; رمز الوصول غير صحيح. يرجى المراجعة والمحاولة مرة أخرى.
+                    </div>""", unsafe_allow_html=True)
+        st.stop()
+
+    # ── واجهة المريض ──────────────────────────────────────────────
     if st.session_state.submitted:
         st.markdown("""
         <div class="thank-you">
